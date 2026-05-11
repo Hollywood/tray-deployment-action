@@ -25683,9 +25683,10 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.realEnvironment = void 0;
+exports.resolveApiCredentials = resolveApiCredentials;
 exports.loadConfig = loadConfig;
-const fs = __importStar(__nccwpck_require__(3024));
-const path = __importStar(__nccwpck_require__(6760));
+const fs = __importStar(__nccwpck_require__(9896));
+const path = __importStar(__nccwpck_require__(6928));
 const core = __importStar(__nccwpck_require__(7484));
 const YAML = __importStar(__nccwpck_require__(8815));
 const DEFAULT_BASE_URL = 'https://api.tray.io';
@@ -25694,8 +25695,9 @@ exports.realEnvironment = {
     getInput: (name) => core.getInput(name) ?? '',
     getBooleanInput: (name) => {
         const raw = core.getInput(name);
-        if (!raw)
+        if (!raw) {
             return false;
+        }
         return /^(true|1|yes|on)$/i.test(raw.trim());
     },
     readFile: (filePath) => fs.readFileSync(filePath, 'utf8'),
@@ -25703,8 +25705,22 @@ exports.realEnvironment = {
     workspace: process.env.GITHUB_WORKSPACE ?? process.cwd(),
     log: (message) => core.info(message),
 };
+/**
+ * Resolves bearer tokens for source vs destination Tray workspaces.
+ * Each side uses source-api-token / destination-api-token when set, otherwise api-token.
+ */
+function resolveApiCredentials(env) {
+    const common = env.getInput('api-token').trim();
+    const sourceToken = env.getInput('source-api-token').trim() || common;
+    const destinationToken = env.getInput('destination-api-token').trim() || common;
+    if (!sourceToken || !destinationToken) {
+        throw new Error('Missing Tray API credentials. Set api-token (used for both workspaces when workspace-specific tokens are omitted), ' +
+            'or set source-api-token and destination-api-token for cross-workspace promotion, ' +
+            'or combine api-token with one of source-api-token / destination-api-token so both resolve to a non-empty token.');
+    }
+    return { sourceToken, destinationToken };
+}
 function loadConfig(env = exports.realEnvironment) {
-    const apiToken = requireInput(env, 'api-token');
     const jsonOverrides = parseConfigJson(env.getInput('config-json'));
     const configPathInput = env.getInput('config-path');
     const configPath = configPathInput === '' ? DEFAULT_CONFIG_PATH : configPathInput;
@@ -25730,7 +25746,6 @@ function loadConfig(env = exports.realEnvironment) {
     const skipRequirementsCheck = pickBoolean(env, 'skip-requirements-check', jsonOverrides.skipRequirementsCheck, fileConfig.skipRequirementsCheck, false);
     return {
         apiBaseUrl,
-        apiToken,
         configPath,
         sourceProjectId,
         destinationProjectId,
@@ -25765,15 +25780,9 @@ function loadConfigFile(env, configPath) {
         return YAML.parse(contents) ?? {};
     }
     catch (err) {
-        throw new Error(`Failed to parse deployment config at ${absolute}: ${err.message}`);
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(`Failed to parse deployment config at ${absolute}: ${message}`);
     }
-}
-function requireInput(env, name) {
-    const value = env.getInput(name);
-    if (!value) {
-        throw new Error(`Required input "${name}" was not provided.`);
-    }
-    return value;
 }
 function requireValue(value, name) {
     if (!value) {
@@ -25782,12 +25791,15 @@ function requireValue(value, name) {
     return value;
 }
 function pick(input, jsonValue, fileValue, fallback) {
-    if (input !== undefined && input !== '')
+    if (input !== undefined && input !== '') {
         return input;
-    if (jsonValue !== undefined && jsonValue !== null)
-        return jsonValue;
-    if (fileValue !== undefined && fileValue !== null)
-        return fileValue;
+    }
+    if (jsonValue !== undefined && jsonValue !== null) {
+        return String(jsonValue);
+    }
+    if (fileValue !== undefined && fileValue !== null) {
+        return String(fileValue);
+    }
     return fallback;
 }
 function pickBoolean(env, name, jsonValue, fileValue, fallback) {
@@ -25795,10 +25807,12 @@ function pickBoolean(env, name, jsonValue, fileValue, fallback) {
     if (raw !== '') {
         return /^(true|1|yes|on)$/i.test(raw.trim());
     }
-    if (typeof jsonValue === 'boolean')
+    if (typeof jsonValue === 'boolean') {
         return jsonValue;
-    if (typeof fileValue === 'boolean')
+    }
+    if (typeof fileValue === 'boolean') {
         return fileValue;
+    }
     return fallback;
 }
 function normalizeScope(value) {
@@ -25879,18 +25893,20 @@ function validateMapping(entry, idx, name) {
     const e = entry;
     const from = e.from;
     const to = e.to;
-    if (!from || !to) {
+    if (!from || !to || typeof from !== 'object' || typeof to !== 'object') {
         throw new Error(`${name}[${idx}] requires both "from" and "to".`);
     }
-    if (typeof from.name !== 'string' || typeof from.version !== 'string') {
+    const f = from;
+    const t = to;
+    if (typeof f.name !== 'string' || typeof f.version !== 'string') {
         throw new Error(`${name}[${idx}].from must have string name and version.`);
     }
-    if (typeof to.name !== 'string' || typeof to.version !== 'string') {
+    if (typeof t.name !== 'string' || typeof t.version !== 'string') {
         throw new Error(`${name}[${idx}].to must have string name and version.`);
     }
     return {
-        from: { name: from.name, version: from.version },
-        to: { name: to.name, version: to.version },
+        from: { name: f.name, version: f.version },
+        to: { name: t.name, version: t.version },
     };
 }
 function tryParseJson(value, name) {
@@ -25898,18 +25914,24 @@ function tryParseJson(value, name) {
         return JSON.parse(value);
     }
     catch (err) {
-        throw new Error(`Could not parse ${name} as JSON: ${err.message}`);
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(`Could not parse ${name} as JSON: ${message}`);
     }
 }
 function parseConfigJson(value) {
-    if (!value)
+    if (!value) {
         return {};
+    }
     const parsed = tryParseJson(value, 'config-json');
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         throw new Error('config-json must be a JSON object.');
     }
-    if ('apiToken' in parsed) {
-        throw new Error('Do not include apiToken in config-json. Use the api-token input instead.');
+    const obj = parsed;
+    const forbidden = ['apiToken', 'sourceApiToken', 'destinationApiToken'];
+    for (const key of forbidden) {
+        if (key in obj) {
+            throw new Error(`Do not include ${key} in config-json. Pass tokens via action inputs instead.`);
+        }
     }
     return parsed;
 }
@@ -25962,15 +25984,19 @@ const pipeline_1 = __nccwpck_require__(5165);
 const trayClient_1 = __nccwpck_require__(2308);
 async function run() {
     try {
+        const { sourceToken, destinationToken } = (0, config_1.resolveApiCredentials)(config_1.realEnvironment);
         const config = (0, config_1.loadConfig)();
-        core.setSecret(config.apiToken);
         core.info(`Tray SDLC: promoting project ${config.sourceProjectId} -> ${config.destinationProjectId} ` +
             `(version=${config.sourceVersion}, scope=${config.scope}, dryRun=${config.dryRun}).`);
-        const client = new trayClient_1.TrayClient({
+        const sourceClient = new trayClient_1.TrayClient({
             baseUrl: config.apiBaseUrl,
-            token: config.apiToken,
+            token: sourceToken,
         });
-        const result = await (0, pipeline_1.runPipeline)(client, config);
+        const destinationClient = new trayClient_1.TrayClient({
+            baseUrl: config.apiBaseUrl,
+            token: destinationToken,
+        });
+        const result = await (0, pipeline_1.runPipeline)(sourceClient, destinationClient, config);
         core.setOutput('source-version-number', result.sourceVersionNumber);
         core.setOutput('destination-version-number', result.destinationVersionNumber);
         core.setOutput('import-metadata-json', result.importMetadata ? JSON.stringify(result.importMetadata) : '');
@@ -25992,8 +26018,9 @@ async function run() {
         }
         if (err instanceof Error) {
             core.setFailed(err.message);
-            if (err.stack)
+            if (err.stack) {
                 core.debug(err.stack);
+            }
             return;
         }
         core.setFailed(`Unknown error: ${String(err)}`);
@@ -26055,27 +26082,19 @@ const defaultLogger = {
     endGroup: () => core.endGroup(),
 };
 /**
- * Runs the Tray.ai SDLC promotion pipeline against the given client.
- *
- * The steps mirror the public docs (Projects + Solutions APIs):
- *   1. Resolve the source version (or `latest`).
- *   2. Export the source version (parsing the stringified body).
- *   3. (Optional) GET import requirements; verify auth mappings cover unresolved auths.
- *   4. POST import preview; surface impact + breaking-change flags.
- *   5. POST import (skipped on dry-run).
- *   6. POST create version in destination (skipped on dry-run).
- *   7. (When scope=platform-and-solutions) POST solution release preview + release.
+ * Runs the Tray.ai SDLC promotion pipeline.
+ * Source workspace calls use `sourceClient`; destination (import, version, solution) use `destinationClient`.
  */
-async function runPipeline(client, config, logger = defaultLogger) {
-    const resolvedSourceVersion = await resolveSourceVersion(client, config, logger);
+async function runPipeline(sourceClient, destinationClient, config, logger = defaultLogger) {
+    const resolvedSourceVersion = await resolveSourceVersion(sourceClient, config, logger);
     logger.startGroup(`Export source version ${resolvedSourceVersion}`);
-    const exportedProjectJson = await client.exportVersion(config.sourceProjectId, resolvedSourceVersion);
+    const exportedProjectJson = await sourceClient.exportVersion(config.sourceProjectId, resolvedSourceVersion);
     logger.info(`Exported version ${resolvedSourceVersion} from ${config.sourceProjectId}.`);
     logger.endGroup();
     let requirements;
     if (!config.skipRequirementsCheck) {
         logger.startGroup('Check import requirements');
-        requirements = await client.getImportRequirements(config.destinationProjectId, {
+        requirements = await destinationClient.getImportRequirements(config.destinationProjectId, {
             exportedProjectJson,
             connectorMapping: config.connectorMappings,
             serviceMapping: config.serviceMappings,
@@ -26094,7 +26113,7 @@ async function runPipeline(client, config, logger = defaultLogger) {
         serviceMapping: config.serviceMappings,
     };
     logger.startGroup('Preview import');
-    const preview = await client.previewImport(config.destinationProjectId, importPayload);
+    const preview = await destinationClient.previewImport(config.destinationProjectId, importPayload);
     reportImpact('preview', preview, logger);
     if (config.failOnBreakingChanges && preview.solutionImpact?.breakingChanges) {
         throw new Error('Import preview reported breaking solution changes; aborting because fail-on-breaking-changes=true.');
@@ -26121,12 +26140,12 @@ async function runPipeline(client, config, logger = defaultLogger) {
         };
     }
     logger.startGroup('Import project');
-    const importResult = await client.importProject(config.destinationProjectId, importPayload);
+    const importResult = await destinationClient.importProject(config.destinationProjectId, importPayload);
     reportImpact('import', importResult, logger);
     logger.endGroup();
     const destinationVersion = config.destinationVersion || resolvedSourceVersion;
     logger.startGroup(`Create destination version ${destinationVersion}`);
-    const createdVersion = await client.createVersion(config.destinationProjectId, destinationVersion, {
+    const createdVersion = await destinationClient.createVersion(config.destinationProjectId, destinationVersion, {
         title: config.versionTitle || `Promoted from source version ${resolvedSourceVersion}`,
         description: config.versionDescription ||
             `Created by tray-sdlc-action from project ${config.sourceProjectId} version ${resolvedSourceVersion}.`,
@@ -26137,14 +26156,15 @@ async function runPipeline(client, config, logger = defaultLogger) {
     let solutionRelease;
     if (config.scope === 'platform-and-solutions' && config.solutionId) {
         logger.startGroup('Solution publish preview');
-        solutionPreview = await client.previewSolutionRelease(config.solutionId);
+        solutionPreview = await destinationClient.previewSolutionRelease(config.solutionId);
         logger.info(`Solution preview: breakingChanges=${solutionPreview.breakingChanges} requiresNewUserInput=${solutionPreview.requiresNewUserInput}`);
         if (config.failOnBreakingChanges && solutionPreview.breakingChanges) {
-            throw new Error('Solution publish preview reported breaking changes; aborting because fail-on-breaking-changes=true. The project import has already been applied; consider rolling back manually.');
+            throw new Error('Solution publish preview reported breaking changes; aborting because fail-on-breaking-changes=true. ' +
+                'The project import has already been applied; consider rolling back manually.');
         }
         logger.endGroup();
         logger.startGroup('Publish solution');
-        solutionRelease = await client.publishSolution(config.solutionId);
+        solutionRelease = await destinationClient.publishSolution(config.solutionId);
         logger.info(`Published solution release ${solutionRelease.releaseId ?? '(no id returned)'}.`);
         logger.endGroup();
     }
@@ -26171,14 +26191,14 @@ async function runPipeline(client, config, logger = defaultLogger) {
         dryRun: false,
     };
 }
-async function resolveSourceVersion(client, config, logger) {
+async function resolveSourceVersion(sourceClient, config, logger) {
     const requested = (config.sourceVersion || 'latest').trim();
     if (requested && requested.toLowerCase() !== 'latest') {
         logger.info(`Using requested source version ${requested}.`);
         return requested;
     }
     logger.startGroup('Resolve latest source version');
-    const list = await client.listVersions(config.sourceProjectId);
+    const list = await sourceClient.listVersions(config.sourceProjectId);
     const elements = list.elements ?? [];
     if (elements.length === 0) {
         throw new Error(`No versions found for source project ${config.sourceProjectId}. Create a version in the source workspace before running this action.`);
@@ -26189,18 +26209,16 @@ async function resolveSourceVersion(client, config, logger) {
     return latest.versionNumber;
 }
 /**
- * Picks the newest version. Prefers `created` ISO timestamps when available
- * (more reliable than parsing string version numbers), falling back to the
- * last element returned by the API otherwise.
+ * Picks the newest version. Prefers `created` ISO timestamps when available.
  */
 function pickLatest(elements) {
-    if (elements.length === 1)
+    if (elements.length === 1) {
         return elements[0];
+    }
     const withDates = elements.filter((e) => Boolean(e.created));
     if (withDates.length === elements.length) {
         return [...elements].sort((a, b) => Date.parse(b.created ?? '') - Date.parse(a.created ?? ''))[0];
     }
-    // Fall back to numeric comparison when versionNumber is numeric.
     const numeric = elements.every((e) => /^\d+$/.test(e.versionNumber));
     if (numeric) {
         return [...elements].sort((a, b) => Number(b.versionNumber) - Number(a.versionNumber))[0];
@@ -26230,11 +26248,14 @@ function reportImpact(stage, result, logger) {
     if (project) {
         const cfg = project.config ?? {};
         const wf = project.workflows ?? {};
-        logger.info(`[${stage}] project impact: workflows created=${len(wf.created)} updated=${len(wf.updated)} removed=${len(wf.removed)}; config created=${len(cfg.created)} updated=${len(cfg.updated)} removed=${len(cfg.removed)}.`);
+        logger.info(`[${stage}] project impact: workflows created=${len(wf.created)} updated=${len(wf.updated)} removed=${len(wf.removed)}; ` +
+            `config created=${len(cfg.created)} updated=${len(cfg.updated)} removed=${len(cfg.removed)}.`);
     }
     const solution = result.solutionImpact;
     if (solution) {
-        logger.info(`[${stage}] solution impact: changeType=${solution.changeType ?? 'unknown'} breakingChanges=${Boolean(solution.breakingChanges)} requiresNewUserInput=${Boolean(solution.requiresNewUserInput)}.`);
+        logger.info(`[${stage}] solution impact: changeType=${solution.changeType ?? 'unknown'} ` +
+            `breakingChanges=${Boolean(solution.breakingChanges)} ` +
+            `requiresNewUserInput=${Boolean(solution.requiresNewUserInput)}.`);
     }
 }
 function len(arr) {
@@ -26286,9 +26307,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.writeSummary = writeSummary;
 const core = __importStar(__nccwpck_require__(7484));
 /**
- * Renders a Markdown job summary documenting what the pipeline did. Falls back
- * to a no-op (only logging to core.info) when GITHUB_STEP_SUMMARY isn't set,
- * which is the case when running locally or in tests.
+ * Renders a Markdown job summary documenting what the pipeline did.
  */
 async function writeSummary(inputs) {
     const md = renderMarkdown(inputs);
@@ -26300,7 +26319,8 @@ async function writeSummary(inputs) {
         await core.summary.addRaw(md, true).write();
     }
     catch (err) {
-        core.warning(`Failed to write job summary: ${err.message}`);
+        const message = err instanceof Error ? err.message : String(err);
+        core.warning(`Failed to write job summary: ${message}`);
     }
 }
 function renderMarkdown(inputs) {
@@ -26368,12 +26388,15 @@ function renderProjectImpact(impact) {
     if ((wf.created ?? []).length || (wf.updated ?? []).length || (wf.removed ?? []).length) {
         lines.push('');
         lines.push('Workflow changes:');
-        for (const w of wf.created ?? [])
+        for (const w of wf.created ?? []) {
             lines.push(`- created: ${w.name}`);
-        for (const w of wf.updated ?? [])
+        }
+        for (const w of wf.updated ?? []) {
             lines.push(`- updated: ${w.name}`);
-        for (const w of wf.removed ?? [])
+        }
+        for (const w of wf.removed ?? []) {
             lines.push(`- removed: ${w.name}`);
+        }
     }
     return lines;
 }
@@ -26442,22 +26465,17 @@ class TrayApiError extends Error {
     body;
     constructor(message, status, endpoint, body) {
         super(message);
-        this.name = 'TrayApiError';
         this.status = status;
         this.endpoint = endpoint;
         this.body = body;
+        this.name = 'TrayApiError';
     }
 }
 exports.TrayApiError = TrayApiError;
 const RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /**
- * Thin, typed HTTP client for the Tray.ai Projects + Solutions APIs.
- *
- * - All requests carry `Authorization: Bearer <token>` and `Accept: application/json`.
- * - Retries 429 / 5xx with exponential backoff (honors `Retry-After` when present).
- * - Tokens are registered as GitHub secrets via `core.setSecret` so the runner
- *   masks them in any subsequent log output.
+ * Thin HTTP client for the Tray.ai Projects + Solutions APIs.
  */
 class TrayClient {
     baseUrl;
@@ -26481,14 +26499,9 @@ class TrayClient {
         this.sleep = opts.sleep ?? defaultSleep;
         core.setSecret(this.token);
     }
-    // --- Projects API ------------------------------------------------------
     listVersions(projectId) {
         return this.request('GET', `/core/v1/projects/${projectId}/versions`);
     }
-    /**
-     * Export endpoint returns a stringified JSON body. We parse it once here
-     * so callers always receive a structured object.
-     */
     async exportVersion(projectId, versionNumber) {
         const path = `/core/v1/projects/${projectId}/versions/${encodeURIComponent(versionNumber)}/export`;
         const raw = await this.requestRaw('GET', path);
@@ -26515,14 +26528,12 @@ class TrayClient {
         const path = `/core/v1/projects/${projectId}/versions/${encodeURIComponent(versionNumber)}`;
         return this.request('POST', path, body);
     }
-    // --- Solutions API -----------------------------------------------------
     previewSolutionRelease(solutionId) {
         return this.request('POST', `/core/v1/solutions/${solutionId}/releases/previews`);
     }
     publishSolution(solutionId) {
         return this.request('POST', `/core/v1/solutions/${solutionId}/releases`);
     }
-    // --- Internals ---------------------------------------------------------
     async request(method, path, body) {
         const raw = await this.requestRaw(method, path, body);
         if (raw === undefined || raw === null || raw === '') {
@@ -26570,7 +26581,10 @@ class TrayClient {
                         continue;
                     }
                     const parsed = parseErrorBody(text);
-                    throw new TrayApiError(`Tray API ${method} ${path} failed with status ${response.status}${parsed && typeof parsed === 'object' && parsed.message ? `: ${parsed.message}` : ''}`, response.status, path, parsed);
+                    const msg = parsed && typeof parsed === 'object' && parsed !== null && 'message' in parsed
+                        ? String(parsed.message)
+                        : '';
+                    throw new TrayApiError(`Tray API ${method} ${path} failed with status ${response.status}${msg ? `: ${msg}` : ''}`, response.status, path, parsed);
                 }
                 const contentType = response.headers.get('content-type') ?? '';
                 if (response.status === 204) {
@@ -26594,12 +26608,12 @@ class TrayClient {
                 if (err instanceof TrayApiError) {
                     throw err;
                 }
-                lastError = err;
+                lastError = err instanceof Error ? err : new Error(String(err));
                 if (attempt >= this.maxRetries) {
                     break;
                 }
                 const delay = this.computeDelay(attempt, null);
-                core.warning(`[trayClient] ${method} ${path} threw ${err.message ?? 'error'}; retrying in ${delay}ms.`);
+                core.warning(`[trayClient] ${method} ${path} threw ${lastError.message}; retrying in ${delay}ms.`);
                 await this.sleep(delay);
                 attempt += 1;
             }
@@ -26628,8 +26642,9 @@ async function safeReadText(response) {
     }
 }
 function parseErrorBody(text) {
-    if (!text)
+    if (!text) {
         return undefined;
+    }
     try {
         const parsed = JSON.parse(text);
         if (parsed && typeof parsed === 'object') {
@@ -26762,22 +26777,6 @@ module.exports = require("node:crypto");
 
 "use strict";
 module.exports = require("node:events");
-
-/***/ }),
-
-/***/ 3024:
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("node:fs");
-
-/***/ }),
-
-/***/ 6760:
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("node:path");
 
 /***/ }),
 

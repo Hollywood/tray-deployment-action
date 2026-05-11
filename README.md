@@ -21,7 +21,7 @@ The action fails fast on breaking changes by default and supports `dry-run` mode
 ## Prerequisites
 
 - A source and destination Tray workspace, each containing the target project (projects cannot currently be created via API and must be set up manually in both workspaces).
-- A user or master token with access to both workspaces. Tokens are environment- and region-specific. Store the token as a GitHub secret (e.g. `TRAY_API_TOKEN`).
+- API tokens: Tray user or master tokens are environment- and region-specific. When both projects live in the **same** workspace, a single secret (e.g. `TRAY_API_TOKEN`) passed as `api-token` is enough. When source and destination are in **different** workspaces, supply `source-api-token` and `destination-api-token` (each token must be able to access its workspace’s Projects/Solutions APIs for the steps this action runs).
 - All required authentications must already exist in the destination workspace; their IDs are mapped via `auth-mappings` (or via the config file).
 - At least one saved version of the source project (created via the UI or `POST /core/v1/projects/{id}/versions/{n}`).
 
@@ -46,6 +46,20 @@ jobs:
           config-path: .tray/deployment.yml
 ```
 
+### Cross-workspace promotion (different API tokens)
+
+When the source and destination Tray projects are not in the same workspace, set both tokens. You can omit `api-token` if both are set:
+
+```yaml
+- uses: tray-io/tray-sdlc-action@v1
+  with:
+    source-api-token: ${{ secrets.TRAY_SOURCE_WORKSPACE_TOKEN }}
+    destination-api-token: ${{ secrets.TRAY_DESTINATION_WORKSPACE_TOKEN }}
+    config-path: .tray/deployment.yml
+```
+
+You can also mix `api-token` with a single override (for example, one shared automation user plus a dedicated destination token).
+
 With a config file at `.tray/deployment.yml`:
 
 ```yaml
@@ -63,11 +77,19 @@ configOverrides:
   ENVIRONMENT: staging
 ```
 
+### Config overrides
+
+In the deployment file, the `configOverrides` object (or the `config-overrides` action input as JSON, or `configOverrides` inside `config-json`) is sent on **import preview** and **import** as the Tray API field `configOverride`. Use it for **destination-specific** values your workflows resolve from config—environment names, base URLs, notification channels, and so on—so each target workspace does not keep the same literals as the exported source.
+
+When the `config-overrides` input is set, it replaces overrides from the file or `config-json`. If none are set, the action sends `{}`. The config file uses the plural key `configOverrides`; the API uses singular `configOverride`.
+
 ## Inputs
 
 | Name | Required | Default | Description |
 | --- | --- | --- | --- |
-| `api-token` | yes | - | Tray.ai user or master token. Pass via a secret. |
+| `api-token` | conditional | `''` | Default token for **both** workspaces when `source-api-token` / `destination-api-token` are omitted. Required unless both workspace-specific tokens are set. |
+| `source-api-token` | no | `''` | Token for the source workspace (list/export). Falls back to `api-token`. |
+| `destination-api-token` | no | `''` | Token for the destination workspace (import, version, solution publish). Falls back to `api-token`. |
 | `api-base-url` | no | `https://api.tray.io` | Region-specific API base URL. |
 | `config-path` | no | `.tray/deployment.yml` | Path to a YAML/JSON config file. Empty string disables file loading. |
 | `source-project-id` | no | from config | UUID of the source project. |
@@ -79,14 +101,14 @@ configOverrides:
 | `scope` | no | `platform-only` | `platform-only` or `platform-and-solutions`. |
 | `solution-id` | no | from config | Required when `scope=platform-and-solutions`. |
 | `auth-mappings` | no | from config | JSON array `[{authExportId, authenticationId}]`. |
-| `config-overrides` | no | from config | JSON object passed as `configOverride`. |
+| `config-overrides` | no | from config | JSON object passed as `configOverride` on import/preview; see [Config overrides](#config-overrides). |
 | `connector-mappings` | no | from config | JSON array of `{from:{name,version},to:{name,version}}`. |
 | `service-mappings` | no | from config | JSON array of `{from:{name,version},to:{name,version}}`. |
 | `fail-on-breaking-changes` | no | `true` | Abort before import if the preview reports breaking changes. |
 | `dry-run` | no | `false` | Stop after preview; no import, version, or publish. |
 | `skip-requirements-check` | no | `false` | Skip the `POST /imports/requirements` call. |
 
-Action inputs always override the matching values in the config file. Secrets (the API token) are never read from the config file.
+Action inputs always override the matching values in the config file. Secrets (API tokens) are never read from the config file.
 
 ## Outputs
 

@@ -7,8 +7,22 @@ branding:
 
 inputs:
   api-token:
-    description: 'Tray.ai user or master token used to authenticate against the Projects/Solutions APIs. Provide via a GitHub secret.'
-    required: true
+    description: >
+      Default Tray.ai user or master token for both workspaces when source-api-token and destination-api-token are omitted.
+      For cross-workspace promotion, set source-api-token and destination-api-token instead (api-token may be omitted if both are set),
+      or set api-token plus one workspace-specific token so the other workspace falls back to this value.
+    required: false
+    default: ''
+  source-api-token:
+    description: >
+      Token for the source workspace (list/export on the source project). When omitted, api-token is used.
+    required: false
+    default: ''
+  destination-api-token:
+    description: >
+      Token for the destination workspace (import, version, and solution APIs). When omitted, api-token is used.
+    required: false
+    default: ''
   api-base-url:
     description: 'Base URL for the Tray.ai API (region-specific). Defaults to https://api.tray.io.'
     required: false

@@ -31,12 +31,18 @@ jobs:
           config-path: .tray/deployment.yml
           dry-run: 'true'
 
+      # For source and destination in different Tray workspaces, use:
+      #   source-api-token: ${{ secrets.TRAY_SOURCE_WORKSPACE_TOKEN }}
+      #   destination-api-token: ${{ secrets.TRAY_DESTINATION_WORKSPACE_TOKEN }}
+      # (omit api-token when both are set.)
       - name: Deploy
         id: deploy
         if: ${{ github.event_name != 'pull_request' }}
         uses: tray-io/tray-sdlc-action@v1
         with:
-          api-token: ${{ secrets.TRAY_API_TOKEN }}
+          # api-token: ${{ secrets.TRAY_API_TOKEN }}
+          source-api-token: ${{ secrets.TRAY_SOURCE_WORKSPACE_TOKEN }}
+          destination-api-token: ${{ secrets.TRAY_DESTINATION_WORKSPACE_TOKEN }}
           config-path: .tray/deployment.yml
           source-version: ${{ inputs.source-version || 'latest' }}
           dry-run: ${{ inputs.dry-run || 'false' }}
