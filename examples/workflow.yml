@@ -1,0 +1,49 @@
+name: Promote Tray project
+
+on:
+  workflow_dispatch:
+    inputs:
+      source-version:
+        description: 'Source project version (number or "latest")'
+        required: false
+        default: 'latest'
+      dry-run:
+        description: 'Run preview only'
+        required: false
+        default: 'false'
+  push:
+    branches: [main]
+    paths:
+      - '.tray/**'
+
+jobs:
+  promote:
+    name: Promote to staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate (dry run)
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: tray-io/tray-sdlc-action@v1
+        with:
+          api-token: ${{ secrets.TRAY_API_TOKEN }}
+          config-path: .tray/deployment.yml
+          dry-run: 'true'
+
+      - name: Deploy
+        id: deploy
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: tray-io/tray-sdlc-action@v1
+        with:
+          api-token: ${{ secrets.TRAY_API_TOKEN }}
+          config-path: .tray/deployment.yml
+          source-version: ${{ inputs.source-version || 'latest' }}
+          dry-run: ${{ inputs.dry-run || 'false' }}
+
+      - name: Show deployed version
+        if: ${{ steps.deploy.outcome == 'success' }}
+        run: |
+          echo "Source version: ${{ steps.deploy.outputs.source-version-number }}"
+          echo "Destination version: ${{ steps.deploy.outputs.destination-version-number }}"
+          echo "Release ID: ${{ steps.deploy.outputs.release-id }}"

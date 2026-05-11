@@ -1,0 +1,97 @@
+name: 'Tray.ai SDLC Deploy'
+description: 'Promote a Tray.ai project version between workspaces using the Projects and Solutions APIs.'
+author: 'Tray.ai'
+branding:
+  icon: 'upload-cloud'
+  color: 'purple'
+
+inputs:
+  api-token:
+    description: 'Tray.ai user or master token used to authenticate against the Projects/Solutions APIs. Provide via a GitHub secret.'
+    required: true
+  api-base-url:
+    description: 'Base URL for the Tray.ai API (region-specific). Defaults to https://api.tray.io.'
+    required: false
+    default: ''
+  config-path:
+    description: 'Path to a YAML or JSON deployment config file in the consumer repo. Defaults to .tray/deployment.yml. Set to an empty string to disable file loading.'
+    required: false
+    default: '.tray/deployment.yml'
+  source-project-id:
+    description: 'UUID of the source project (the project being exported).'
+    required: false
+    default: ''
+  destination-project-id:
+    description: 'UUID of the destination project (the project being imported into).'
+    required: false
+    default: ''
+  source-version:
+    description: 'Source project version to deploy. Use "latest" to resolve the most recently created version automatically.'
+    required: false
+    default: ''
+  destination-version:
+    description: 'Version number to create in the destination workspace after import. Defaults to the resolved source version for consistency.'
+    required: false
+    default: ''
+  version-title:
+    description: 'Title for the destination version (used by POST /versions/{versionNumber}).'
+    required: false
+    default: ''
+  version-description:
+    description: 'Description for the destination version (used by POST /versions/{versionNumber}).'
+    required: false
+    default: ''
+  scope:
+    description: 'Deployment scope: "platform-only" or "platform-and-solutions". When "platform-and-solutions", the action will also call the Solutions publish-preview and publish APIs.'
+    required: false
+    default: ''
+  solution-id:
+    description: 'UUID of the solution to publish. Required when scope is "platform-and-solutions".'
+    required: false
+    default: ''
+  auth-mappings:
+    description: 'JSON array of authentication mappings, e.g. ''[{"authExportId":"...","authenticationId":"..."}]''.'
+    required: false
+    default: ''
+  config-overrides:
+    description: 'JSON object passed as configOverride to the import payload.'
+    required: false
+    default: ''
+  connector-mappings:
+    description: 'JSON array of connector mappings ([{from:{name,version},to:{name,version}}, ...]).'
+    required: false
+    default: ''
+  service-mappings:
+    description: 'JSON array of service mappings ([{from:{name,version},to:{name,version}}, ...]).'
+    required: false
+    default: ''
+  fail-on-breaking-changes:
+    description: 'When true (default), abort before import if the preview reports breaking changes on the project or solution.'
+    required: false
+    default: 'true'
+  dry-run:
+    description: 'When true, stop after the import preview. No import, version creation, or publish is performed.'
+    required: false
+    default: 'false'
+  skip-requirements-check:
+    description: 'When true, skip the POST /imports/requirements call. Useful for initial deployments where no auth/config diffing is needed.'
+    required: false
+    default: 'false'
+
+outputs:
+  source-version-number:
+    description: 'The version number that was exported from the source workspace.'
+  destination-version-number:
+    description: 'The version number created in the destination workspace.'
+  import-metadata-json:
+    description: 'JSON-encoded importMetadata object returned by POST /imports.'
+  project-impact-json:
+    description: 'JSON-encoded projectImpact object returned by POST /imports.'
+  solution-impact-json:
+    description: 'JSON-encoded solutionImpact object returned by POST /imports (when applicable).'
+  release-id:
+    description: 'Release ID returned by POST /solutions/{id}/releases when scope is "platform-and-solutions".'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
